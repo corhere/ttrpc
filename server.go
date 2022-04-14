@@ -28,6 +28,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -322,6 +323,7 @@ func (c *serverConn) run(sctx context.Context) {
 		recvErr               = make(chan error, 1)
 		shutdown              = c.shutdown
 		done                  = make(chan struct{})
+		peerInfo              = &peer.Peer{Addr: c.conn.RemoteAddr()}
 	)
 
 	defer c.conn.Close()
@@ -432,7 +434,7 @@ func (c *serverConn) run(sctx context.Context) {
 		case request := <-requests:
 			active++
 			go func(id uint32) {
-				ctx, cancel := getRequestContext(ctx, request.req)
+				ctx, cancel := getRequestContext(ctx, request.req, peerInfo)
 				defer cancel()
 
 				p, status := c.server.services.call(ctx, request.req.Service, request.req.Method, request.req.Payload)
@@ -483,12 +485,14 @@ func (c *serverConn) run(sctx context.Context) {
 
 var noopFunc = func() {}
 
-func getRequestContext(ctx context.Context, req *Request) (retCtx context.Context, cancel func()) {
+func getRequestContext(ctx context.Context, req *Request, p *peer.Peer) (retCtx context.Context, cancel func()) {
 	if len(req.Metadata) > 0 {
 		md := MD{}
 		md.fromRequest(req)
 		ctx = WithMetadata(ctx, md)
 	}
+
+	ctx = peer.NewContext(ctx, p)
 
 	cancel = noopFunc
 	if req.TimeoutNano == 0 {
